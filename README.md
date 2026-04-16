@@ -1,8 +1,8 @@
-# finance-admin-dashboard
+# Lendflow-app
 
- # 💼 Finance Admin Dashboard (Loan Management Template)
+ # 💼 Lendflow-app (Loan Management Template)
 
-A modern, responsive **admin dashboard template** built with React and Tailwind CSS, designed for managing loans, customers, and financial data efficiently.
+A modern, responsive **Agent Collection template** built with React and Tailwind CSS, designed for managing loans, customers, and financial data efficiently.
 
 This template is perfect for:
 
@@ -52,13 +52,13 @@ src/
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/waynemandem/finance-admin-dashboard.git
+git clone https://github.com/waynemandem/lendflow-app.git
 ```
 
 2. Navigate into the project:
 
 ```bash
-cd finance-admin-dashboard
+cd lendflow-app
 ```
 
 3. Install dependencies:
