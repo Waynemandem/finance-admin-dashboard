@@ -36,35 +36,95 @@ const ACTION_CODES = {
   "Complaint":    ["Repayment Issues","Customer Service Question","App Issues","Internet Issues","Amount Problem","Other Complaint","Client Death"],
 };
 
+// ─── CASE STATUS LOGIC (derived, not stored) ──────────────────────────────────
+// lastLogin: ISO timestamp of last time customer opened the loan app (null = never)
+// isPrioritized : lastLogin within 24 hrs
+// isUnfinished  : callCount === 0
+// isPTP         : any action with subCode === "PTP"
+// isPending     : loan.paidAmount > 0 && loan.overdueDays > 0
+// isProcessed   : callCount > 0 && loan.overdueDays === 0
+// Dots on card  : blue = prioritized | green = any payment made | red = overdueDays > 14
+
+const NOW = new Date("2026-04-16T10:00:00"); // fixed "now" so demo is stable
+
+const getCaseStatus = (c) => {
+  const hasPTP      = c.actions.some(a => a.subCode === "PTP");
+  const isPending   = c.loan.paidAmount > 0 && c.loan.overdueDays > 0;
+  const isProcessed = c.callCount > 0 && c.loan.overdueDays === 0;
+  if (hasPTP)      return "ptp";
+  if (isPending)   return "pending";
+  if (isProcessed) return "processed";
+  if (c.callCount === 0) return "unfinished";
+  return "unfinished";
+};
+
+const isPrioritized = (c) => {
+  if (!c.lastLogin) return false;
+  const diff = NOW - new Date(c.lastLogin);
+  return diff >= 0 && diff <= 24 * 60 * 60 * 1000;
+};
+
 const mockCases = [
-  { id:1, product:"glowcredit", borrowerType:"Old", caseStatus:"unfinished", callCount:4, overdueDays:12, overdueAmount:725.35,
+  // Ahmed — called, has PTP action, overdue 12 days → PTP tab, red dot
+  { id:1, product:"glowcredit", borrowerType:"Old", callCount:4, overdueDays:12, overdueAmount:725.35,
+    lastLogin: null,
     customer:{ name:"Ahmed Zakaria", gender:"M", age:36, maritalStatus:"M", phone1:"+1 (404) 256-7890", phone1Network:"AT&T", phone2:"+1 (404) 123-4567", phone2Network:"T-Mobile", address:"14 Peachtree St NE, Atlanta, GA 30309", emergencyContacts:[{label:"Brothers or sisters",name:"Fatawu Zakaria",phone:"+1 (404) 987-6543"},{label:"Father or mother",name:"Amina Zakaria",phone:"+1 (404) 555-1234"}] },
     loan:{ loanId:"9565384679456116824", product:"glowcredit", termType:"7D3T", loanAmount:1700, loanDate:"2026-03-24", loanTerms:3, overdueDays:12, overdueAmount:725.35, amountAfterExemption:725.35, paidAmount:1400.66, recTotalAmount:715.36, dueDate:"2026-04-14" },
     actions:[{no:1,time:"2026-04-13 09:18:56",contactName:"Ahmed Zakaria",contactType:"SF",collector:"ENIOLA BALOGUN",contactPhone:"Phone 1",actionCode:"Customer Self",subCode:"PTP",description:"Will pay around 5pm today"},{no:2,time:"2026-04-12 14:32:10",contactName:"Fatawu Zakaria",contactType:"EC",collector:"ENIOLA BALOGUN",contactPhone:"Phone 2",actionCode:"Contact",subCode:"Promise to Pass On",description:"Brother said will remind him"}],
     deductions:[{date:"2026-03-28",amount:800.00,txId:"TXN884729201",channel:"Mobile Money"},{date:"2026-03-15",amount:600.66,txId:"TXN772819300",channel:"Bank Transfer"}] },
-  { id:2, product:"loanglide", borrowerType:"Old", caseStatus:"ptp", callCount:7, overdueDays:3, overdueAmount:480.53,
+
+  // Mourh — called, PTP action, overdue 3 days → PTP tab, green dot (has paid), blue dot (logged in 2hrs ago)
+  { id:2, product:"loanglide", borrowerType:"Old", callCount:7, overdueDays:3, overdueAmount:480.53,
+    lastLogin: "2026-04-16T08:22:00",
     customer:{ name:"Mourh Ruth", gender:"F", age:29, maritalStatus:"S", phone1:"+1 (212) 234-5678", phone1Network:"Verizon", phone2:"+1 (212) 876-5432", phone2Network:"AT&T", address:"7 5th Avenue, New York, NY 10003", emergencyContacts:[{label:"Spouse",name:"Daniel Ruth",phone:"+1 (212) 444-9988"}] },
     loan:{ loanId:"7712938475610023847", product:"loanglide", termType:"14D2T", loanAmount:1200, loanDate:"2026-03-20", loanTerms:2, overdueDays:3, overdueAmount:480.53, amountAfterExemption:480.53, paidAmount:719.47, recTotalAmount:480.53, dueDate:"2026-04-10" },
     actions:[{no:1,time:"2026-04-13 11:02:44",contactName:"Mourh Ruth",contactType:"SF",collector:"ENIOLA BALOGUN",contactPhone:"Phone 1",actionCode:"Customer Self",subCode:"PTP",description:"Will pay by end of day"}],
     deductions:[{date:"2026-04-01",amount:719.47,txId:"TXN991827364",channel:"Mobile Money"}] },
-  { id:3, product:"glowcredit", borrowerType:"Old", caseStatus:"unfinished", callCount:0, overdueDays:1, overdueAmount:369.15,
+
+  // Alice — never called, overdue 1 day, partial payments made → Unfinished tab, green dot
+  { id:3, product:"glowcredit", borrowerType:"Old", callCount:0, overdueDays:1, overdueAmount:369.15,
+    lastLogin: null,
     customer:{ name:"Alice Whajah", gender:"F", age:44, maritalStatus:"M", phone1:"+1 (323) 321-0987", phone1Network:"T-Mobile", phone2:"+1 (323) 678-3421", phone2Network:"Verizon", address:"22 Sunset Blvd, Los Angeles, CA 90028", emergencyContacts:[{label:"Brothers or sisters",name:"Kofi Whajah",phone:"+1 (323) 111-2233"},{label:"Father or mother",name:"Grace Mensah",phone:"+1 (323) 344-5566"},{label:"Spouse",name:"James Whajah",phone:"+1 (323) 788-9900"}] },
     loan:{ loanId:"3348291764500187263", product:"glowcredit", termType:"7D3T", loanAmount:900, loanDate:"2026-04-05", loanTerms:3, overdueDays:1, overdueAmount:369.15, amountAfterExemption:369.15, paidAmount:530.85, recTotalAmount:369.15, dueDate:"2026-04-13" },
     actions:[], deductions:[{date:"2026-04-10",amount:300.00,txId:"TXN556611223",channel:"Mobile Money"},{date:"2026-04-07",amount:230.85,txId:"TXN443322110",channel:"Bank Transfer"}] },
-  { id:4, product:"glowcredit", borrowerType:"Old", caseStatus:"prioritized", callCount:5, overdueDays:1, overdueAmount:255.90,
+
+  // Christopher — called, no PTP, overdue 1 day, logged in 30min ago → Unfinished tab, blue dot (prioritized)
+  { id:4, product:"glowcredit", borrowerType:"Old", callCount:5, overdueDays:1, overdueAmount:255.90,
+    lastLogin: "2026-04-16T09:32:00",
     customer:{ name:"Christopher Tetteh Gamah", gender:"M", age:51, maritalStatus:"M", phone1:"+1 (312) 909-8877", phone1Network:"AT&T", phone2:"+1 (312) 566-7788", phone2Network:"T-Mobile", address:"3 Michigan Ave, Chicago, IL 60601", emergencyContacts:[{label:"Spouse",name:"Abena Gamah",phone:"+1 (312) 443-2211"}] },
     loan:{ loanId:"5521837465029381746", product:"glowcredit", termType:"30D1T", loanAmount:2000, loanDate:"2026-03-14", loanTerms:1, overdueDays:1, overdueAmount:255.90, amountAfterExemption:255.90, paidAmount:1744.10, recTotalAmount:255.90, dueDate:"2026-04-13" },
     actions:[{no:1,time:"2026-04-12 08:45:30",contactName:"Christopher Tetteh Gamah",contactType:"SF",collector:"ENIOLA BALOGUN",contactPhone:"Phone 1",actionCode:"Customer Self",subCode:"Postpone",description:"Says he will pay next week"}],
     deductions:[{date:"2026-03-30",amount:1000.00,txId:"TXN667788990",channel:"Mobile Money"},{date:"2026-03-20",amount:744.10,txId:"TXN554433221",channel:"Bank Transfer"}] },
-  { id:5, product:"quickfund", borrowerType:"New", caseStatus:"pending", callCount:2, overdueDays:5, overdueAmount:1120.00,
+
+  // Efua — called, no PTP, overdue 5 days, paid something → Pending tab, green dot
+  { id:5, product:"quickfund", borrowerType:"New", callCount:2, overdueDays:5, overdueAmount:1120.00,
+    lastLogin: null,
     customer:{ name:"Efua Mensah", gender:"F", age:33, maritalStatus:"S", phone1:"+1 (713) 112-3344", phone1Network:"Verizon", phone2:"+1 (713) 556-7788", phone2Network:"AT&T", address:"9 Main St, Houston, TX 77002", emergencyContacts:[{label:"Father or mother",name:"Kwame Mensah",phone:"+1 (713) 998-7766"}] },
     loan:{ loanId:"8890123456781234567", product:"quickfund", termType:"14D2T", loanAmount:3000, loanDate:"2026-03-28", loanTerms:2, overdueDays:5, overdueAmount:1120.00, amountAfterExemption:1120.00, paidAmount:1880.00, recTotalAmount:1120.00, dueDate:"2026-04-09" },
     actions:[], deductions:[{date:"2026-04-05",amount:1880.00,txId:"TXN112233445",channel:"Mobile Money"}] },
-  { id:6, product:"swiftcash", borrowerType:"New", caseStatus:"processed", callCount:3, overdueDays:0, overdueAmount:0,
+
+  // Kofi — called, overdue 0, fully paid → Processed tab, green dot
+  { id:6, product:"swiftcash", borrowerType:"New", callCount:3, overdueDays:0, overdueAmount:0,
+    lastLogin: null,
     customer:{ name:"Kofi Asante", gender:"M", age:27, maritalStatus:"S", phone1:"+1 (404) 771-2233", phone1Network:"T-Mobile", phone2:"+1 (404) 882-3344", phone2Network:"Verizon", address:"55 Baker St, Atlanta, GA 30318", emergencyContacts:[{label:"Father or mother",name:"Yaa Asante",phone:"+1 (404) 661-1122"}] },
     loan:{ loanId:"1122334455667788990", product:"swiftcash", termType:"7D3T", loanAmount:500, loanDate:"2026-03-10", loanTerms:3, overdueDays:0, overdueAmount:0, amountAfterExemption:0, paidAmount:500, recTotalAmount:0, dueDate:"2026-04-01" },
     actions:[{no:1,time:"2026-04-01 10:00:00",contactName:"Kofi Asante",contactType:"SF",collector:"ENIOLA BALOGUN",contactPhone:"Phone 1",actionCode:"Customer Self",subCode:"PTP",description:"Payment confirmed"}],
     deductions:[{date:"2026-04-01",amount:500.00,txId:"TXN334455667",channel:"Bank Transfer"}] },
+
+  // Nadia — never called, overdue 33 days → Unfinished tab, red dot (long overdue)
+  { id:7, product:"loanglide", borrowerType:"New", callCount:0, overdueDays:33, overdueAmount:2100.00,
+    lastLogin: null,
+    customer:{ name:"Nadia Fontaine", gender:"F", age:38, maritalStatus:"S", phone1:"+1 (305) 441-5566", phone1Network:"AT&T", phone2:"+1 (305) 772-8899", phone2Network:"Verizon", address:"99 Biscayne Blvd, Miami, FL 33132", emergencyContacts:[{label:"Brothers or sisters",name:"Marc Fontaine",phone:"+1 (305) 334-7711"}] },
+    loan:{ loanId:"4456789012345678901", product:"loanglide", termType:"30D1T", loanAmount:2500, loanDate:"2026-02-10", loanTerms:1, overdueDays:33, overdueAmount:2100.00, amountAfterExemption:2100.00, paidAmount:400.00, recTotalAmount:2100.00, dueDate:"2026-03-12" },
+    actions:[], deductions:[{date:"2026-03-01",amount:400.00,txId:"TXN998877665",channel:"Bank Transfer"}] },
+
+  // Ethan — called, PTP logged, overdue 8 days, logged in 5hrs ago → PTP tab, blue dot + red dot
+  { id:8, product:"quickfund", borrowerType:"Old", callCount:5, overdueDays:8, overdueAmount:630.00,
+    lastLogin: "2026-04-16T05:10:00",
+    customer:{ name:"Ethan Blackwell", gender:"M", age:45, maritalStatus:"M", phone1:"+1 (555) 634-2210", phone1Network:"T-Mobile", phone2:"+1 (555) 899-3344", phone2Network:"AT&T", address:"10 Downing Ave, Boston, MA 02101", emergencyContacts:[{label:"Spouse",name:"Clara Blackwell",phone:"+1 (555) 234-5566"}] },
+    loan:{ loanId:"6677889900112233445", product:"quickfund", termType:"14D2T", loanAmount:2000, loanDate:"2026-03-20", loanTerms:2, overdueDays:8, overdueAmount:630.00, amountAfterExemption:630.00, paidAmount:1370.00, recTotalAmount:630.00, dueDate:"2026-04-08" },
+    actions:[{no:1,time:"2026-04-14 14:00:00",contactName:"Ethan Blackwell",contactType:"SF",collector:"ENIOLA BALOGUN",contactPhone:"Phone 1",actionCode:"Customer Self",subCode:"PTP",description:"Will pay on Friday"}],
+    deductions:[{date:"2026-04-01",amount:1370.00,txId:"TXN556677889",channel:"Mobile Money"}] },
 ];
 
 const mockRepayments = [
@@ -118,15 +178,20 @@ const I = {
 };
 
 // ─── SMALL HELPERS ────────────────────────────────────────────────────────────
-const caseColor = (cs, t) => ({
-  unfinished:[t.red,t.redLight], prioritized:[t.orange,t.orangeLight],
-  ptp:[t.purple,t.purpleLight], pending:[t.textMuted,t.surfaceAlt], processed:[t.green,t.greenLight]
-}[cs] || [t.textMuted,t.surfaceAlt]);
-
 const CasePill = ({ status, t }) => {
-  const [c,bg] = caseColor(status,t);
-  return <span style={{ background:bg, color:c, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:3, textTransform:"capitalize", letterSpacing:"0.04em", whiteSpace:"nowrap" }}>{status}</span>;
+  if (status !== "ptp" && status !== "pending" && status !== "processed") return null;
+  const map = {
+    ptp:       [t.purple, t.purpleLight, "PTP"],
+    pending:   [t.orange, t.orangeLight, "Pending"],
+    processed: [t.green,  t.greenLight,  "Processed"],
+  };
+  const [c,bg,label] = map[status];
+  return <span style={{ background:bg, color:c, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:3, letterSpacing:"0.04em", whiteSpace:"nowrap" }}>{label}</span>;
 };
+
+const StatusDot = ({ color }) => (
+  <span style={{ display:"inline-block", width:9, height:9, borderRadius:"50%", background:color, flexShrink:0, marginRight:2 }}/>
+);
 
 const inSt = t => ({ width:"100%", background:t.surfaceAlt, border:`1px solid ${t.border}`, borderRadius:8, padding:"11px 14px", color:t.text, fontSize:14, fontFamily:"inherit", outline:"none", boxSizing:"border-box", appearance:"none" });
 const Lbl = ({ c, children }) => <div style={{ fontSize:11, color:c, fontWeight:500, marginBottom:4, letterSpacing:"0.02em" }}>{children}</div>;
@@ -630,49 +695,124 @@ function DetailScreen({ caseData, t, onBack, onCaseUpdate }) {
 function CasesList({ cases, t, onCaseClick }) {
   const [tab, setTab] = useState("All");
   const [q, setQ]     = useState("");
-  const shown = cases.filter(c => {
-    const ms = c.customer.name.toLowerCase().includes(q.toLowerCase())||c.product.toLowerCase().includes(q.toLowerCase());
-    return ms&&(tab==="All"||c.caseStatus.toLowerCase()===tab.toLowerCase());
+
+  const enriched = cases.map(c => {
+    const status   = getCaseStatus(c);
+    const blueDot  = isPrioritized(c);
+    const greenDot = c.loan.paidAmount > 0;
+    const redDot   = c.overdueDays > 14;
+    return { ...c, status, blueDot, greenDot, redDot };
   });
+
+  const tabFilter = c => {
+    switch (tab) {
+      case "Unfinished":  return c.callCount === 0;
+      case "Prioritized": return c.blueDot;
+      case "PTP":         return c.status === "ptp";
+      case "Pending":     return c.status === "pending";
+      case "Processed":   return c.status === "processed";
+      default:            return true;
+    }
+  };
+
+  const shown = enriched.filter(c => {
+    const mq = c.customer.name.toLowerCase().includes(q.toLowerCase()) ||
+               c.product.toLowerCase().includes(q.toLowerCase());
+    return mq && tabFilter(c);
+  });
+
+  const tabCount = tb => {
+    switch (tb) {
+      case "Unfinished":  return enriched.filter(c=>c.callCount===0).length;
+      case "Prioritized": return enriched.filter(c=>c.blueDot).length;
+      case "PTP":         return enriched.filter(c=>c.status==="ptp").length;
+      case "Pending":     return enriched.filter(c=>c.status==="pending").length;
+      case "Processed":   return enriched.filter(c=>c.status==="processed").length;
+      default:            return enriched.length;
+    }
+  };
+
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", background:t.bg }}>
+      {/* Search */}
       <div style={{ background:t.surface, borderBottom:`1px solid ${t.border}`, padding:"12px 16px", flexShrink:0 }}>
         <div style={{ position:"relative" }}>
           <div style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:t.textMuted }}><Ico d={I.search} size={16}/></div>
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search Case Information" style={{ ...inSt(t), paddingLeft:40, borderRadius:24 }}/>
         </div>
       </div>
-      <div style={{ background:t.surface, borderBottom:`1px solid ${t.border}`, overflowX:"auto", display:"flex", padding:"0 12px", flexShrink:0 }}>
-        {CASE_TABS.map(tb=>(
-          <button key={tb} onClick={()=>setTab(tb)} style={{ padding:"11px 14px", fontSize:13, fontWeight:tab===tb?700:400, color:tab===tb?t.blue:t.textMuted, background:"transparent", border:"none", cursor:"pointer", borderBottom:`2.5px solid ${tab===tb?t.blue:"transparent"}`, whiteSpace:"nowrap", fontFamily:"inherit" }}>{tb}</button>
-        ))}
+
+      {/* Tabs */}
+      <div style={{ background:t.surface, borderBottom:`1px solid ${t.border}`, overflowX:"auto", display:"flex", padding:"0 8px", flexShrink:0 }}>
+        {CASE_TABS.map(tb => {
+          const active = tab === tb;
+          return (
+            <button key={tb} onClick={()=>setTab(tb)}
+              style={{ display:"flex", alignItems:"center", gap:5, padding:"11px 10px", fontSize:13, fontWeight:active?700:400, color:active?t.blue:t.textMuted, background:"transparent", border:"none", cursor:"pointer", borderBottom:`2.5px solid ${active?t.blue:"transparent"}`, whiteSpace:"nowrap", fontFamily:"inherit", flexShrink:0 }}>
+              {tb}
+              <span style={{ fontSize:10, fontWeight:700, background:active?t.blue:t.surfaceAlt, color:active?"#fff":t.textMuted, borderRadius:10, padding:"1px 6px", minWidth:18, textAlign:"center" }}>
+                {tabCount(tb)}
+              </span>
+            </button>
+          );
+        })}
       </div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 16px", flexShrink:0 }}>
-        <span style={{ fontSize:15, fontWeight:700, color:t.blue }}>{shown.length} case{shown.length!==1?"s":""}</span>
-        <button style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:7, padding:"6px 12px", cursor:"pointer", color:t.textSub, display:"flex", alignItems:"center", gap:6, fontSize:12 }}><Ico d={I.filter} size={13}/> Filter</button>
+
+      {/* Count + legend */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 16px", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <span style={{ fontSize:14, fontWeight:700, color:t.blue }}>{shown.length} case{shown.length!==1?"s":""}</span>
+          <div style={{ display:"flex", alignItems:"center", gap:10, fontSize:10, color:t.textMuted }}>
+            <span style={{ display:"flex", alignItems:"center", gap:3 }}><StatusDot color={t.blue}/>Active</span>
+            <span style={{ display:"flex", alignItems:"center", gap:3 }}><StatusDot color={t.green}/>Paid</span>
+            <span style={{ display:"flex", alignItems:"center", gap:3 }}><StatusDot color={t.red}/>Overdue</span>
+          </div>
+        </div>
+        <button style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:7, padding:"6px 12px", cursor:"pointer", color:t.textSub, display:"flex", alignItems:"center", gap:6, fontSize:12 }}>
+          <Ico d={I.filter} size={13}/> Filter
+        </button>
       </div>
+
+      {/* Cards */}
       <div style={{ flex:1, overflowY:"auto", padding:"0 14px 16px" }}>
-        {shown.map((c,idx)=>(
+        {shown.map((c, idx) => (
           <div key={c.id} onClick={()=>onCaseClick(c)}
-            style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, marginBottom:10, overflow:"hidden", cursor:"pointer", transition:"border-color 0.15s" }}
-            onMouseEnter={e=>e.currentTarget.style.borderColor=t.blue}
-            onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+            style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, marginBottom:10, overflow:"hidden", cursor:"pointer", transition:"border-color 0.15s, box-shadow 0.15s" }}
+            onMouseEnter={e=>{ e.currentTarget.style.borderColor=t.blue; e.currentTarget.style.boxShadow=`0 2px 12px ${t.blue}18`; }}
+            onMouseLeave={e=>{ e.currentTarget.style.borderColor=t.border; e.currentTarget.style.boxShadow="none"; }}>
+
+            {/* Top: number + product + PTP badge only + call count */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"9px 14px 7px", borderBottom:`1px solid ${t.border}` }}>
-              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:7 }}>
                 <span style={{ fontSize:14, fontWeight:700, color:t.blue }}>{idx+1}</span>
                 <span style={{ fontSize:12, fontWeight:600, color:t.textSub, background:t.surfaceAlt, padding:"2px 9px", borderRadius:5 }}>{c.product}</span>
-                <CasePill status={c.caseStatus} t={t}/>
+                <CasePill status={c.status} t={t}/>
               </div>
               <span style={{ fontSize:11, color:t.textMuted }}>Call {c.callCount} times</span>
             </div>
+
+            {/* Bottom: type + dots + name + amount/overdue + call btn */}
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"11px 14px" }}>
-              <div style={{ display:"flex", alignItems:"center", gap:9, flex:1, minWidth:0 }}>
-                <span style={{ background:t.surfaceAlt, border:`1px solid ${t.border}`, borderRadius:4, fontSize:10, fontWeight:700, padding:"2px 6px", color:t.textMuted, flexShrink:0 }}>{c.borrowerType}</span>
-                <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:15, fontWeight:700, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.customer.name}</div>
-                  <div style={{ fontSize:12, marginTop:2 }}>
-                    <span style={{ color:t.textMuted }}>Amount: </span><span style={{ fontWeight:700, color:t.text }}>${c.overdueAmount.toFixed(2)}</span>
-                    <span style={{ color:t.textMuted, marginLeft:12 }}>Overdue Days: </span><span style={{ fontWeight:700, color:c.overdueDays>0?t.red:t.green }}>{c.overdueDays}</span>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:8, flex:1, minWidth:0 }}>
+                <span style={{ background:t.surfaceAlt, border:`1px solid ${t.border}`, borderRadius:4, fontSize:10, fontWeight:700, padding:"2px 6px", color:t.textMuted, flexShrink:0, marginTop:3 }}>
+                  {c.borrowerType}
+                </span>
+                <div style={{ minWidth:0, flex:1 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:5, marginBottom:3, flexWrap:"wrap" }}>
+                    <div style={{ display:"flex", gap:4, alignItems:"center" }}>
+                      {c.blueDot  && <StatusDot color={t.blue}/>}
+                      {c.greenDot && <StatusDot color={t.green}/>}
+                      {c.redDot   && <StatusDot color={t.red}/>}
+                    </div>
+                    <span style={{ fontSize:15, fontWeight:700, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {c.customer.name}
+                    </span>
+                  </div>
+                  <div style={{ fontSize:12 }}>
+                    <span style={{ color:t.textMuted }}>Amount: </span>
+                    <span style={{ fontWeight:700, color:t.text }}>${c.overdueAmount.toFixed(2)}</span>
+                    <span style={{ color:t.textMuted, marginLeft:12 }}>Overdue Days: </span>
+                    <span style={{ fontWeight:700, color:c.overdueDays>0?t.red:t.green }}>{c.overdueDays}</span>
                   </div>
                 </div>
               </div>
@@ -683,11 +823,14 @@ function CasesList({ cases, t, onCaseClick }) {
             </div>
           </div>
         ))}
-        {!shown.length && <div style={{ textAlign:"center", padding:"48px 0", color:t.textMuted, fontSize:14 }}>No cases found.</div>}
+        {!shown.length && (
+          <div style={{ textAlign:"center", padding:"48px 0", color:t.textMuted, fontSize:14 }}>No cases found.</div>
+        )}
       </div>
     </div>
   );
 }
+
 
 // ─── REPAYMENT SCREEN ─────────────────────────────────────────────────────────
 function RepaymentScreen({ repayments, t }) {
@@ -752,68 +895,91 @@ function RepaymentScreen({ repayments, t }) {
 }
 
 // ─── STATISTICS SCREEN ────────────────────────────────────────────────────────
+const MEDAL_COLORS = {
+  1: { bg:"linear-gradient(135deg,#FFD700,#FFA500)", ring:"#FFD700", text:"#7b4f00", label:"Gold"   },
+  2: { bg:"linear-gradient(135deg,#C0C0C0,#A0A0A0)", ring:"#C0C0C0", text:"#4a4a4a", label:"Silver" },
+  3: { bg:"linear-gradient(135deg,#CD7F32,#A0522D)", ring:"#CD7F32", text:"#5c2e00", label:"Bronze" },
+};
+
+function MedalBadge({ rank }) {
+  const m = MEDAL_COLORS[rank] || { bg:"linear-gradient(135deg,#6b7280,#4b5563)", ring:"#6b7280", text:"#fff", label:`#${rank}` };
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
+      <div style={{ width:56, height:56, borderRadius:"50%", background:m.bg, border:`3px solid ${m.ring}`, display:"flex", alignItems:"center", justifyContent:"center", boxShadow:`0 4px 12px ${m.ring}55` }}>
+        {rank <= 3 ? (
+          <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+            <circle cx="15" cy="11" r="8" fill="rgba(255,255,255,0.3)" stroke="rgba(255,255,255,0.6)" strokeWidth="1"/>
+            <text x="15" y="15" textAnchor="middle" fill={m.text} fontSize="9" fontWeight="bold" dominantBaseline="middle">{rank}</text>
+            <path d="M9.5 17.5L8 27l7-3.5 7 3.5-1.5-9.5" fill="rgba(255,255,255,0.25)" stroke="rgba(255,255,255,0.5)" strokeWidth="1"/>
+          </svg>
+        ) : (
+          <span style={{ fontSize:16, fontWeight:800, color:"#fff" }}>#{rank}</span>
+        )}
+      </div>
+      <span style={{ fontSize:10, fontWeight:700, color:rank<=3?m.ring:"#6b7280" }}>{m.label}</span>
+    </div>
+  );
+}
+
 function StatisticsScreen({ stats, t }) {
-  const pct = Math.min((stats.currentRecovery / stats.nextTargetRecovery) * 100, 100);
+  const pct = Math.min((stats.currentRecovery / (stats.nextTargetRecovery||1)) * 100, 100);
   return (
     <div style={{ display:"flex", flexDirection:"column", height:"100%", background:t.bg, overflowY:"auto" }}>
-      <div style={{ padding:"16px 16px 0" }}>
+      <div style={{ padding:"16px 16px 32px" }}>
+
         {/* Bucket */}
         <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:10, padding:"12px 14px", marginBottom:14, display:"flex", alignItems:"center", gap:12 }}>
-          <span style={{ fontSize:13, color:t.textMuted, fontWeight:500, flexShrink:0 }}>Bucket</span>
-          <div style={{ fontSize:13, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:"monospace" }}>{stats.bucket}</div>
+          <span style={{ fontSize:13, color:t.textMuted, fontWeight:600, flexShrink:0 }}>Bucket</span>
+          <div style={{ fontSize:12, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", fontFamily:"monospace" }}>{stats.bucket}</div>
         </div>
 
         {/* Rank card */}
-        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"18px 18px 20px", marginBottom:14 }}>
-          <div style={{ display:"flex", gap:14, marginBottom:16 }}>
-            {/* Medal */}
-            <div style={{ flexShrink:0 }}>
-              <div style={{ width:52, height:52, borderRadius:"50%", background:"linear-gradient(135deg,#cd7f32,#a0522d)", display:"flex", alignItems:"center", justifyContent:"center" }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="8" r="6" fill="#f5c842" stroke="#d4a017" strokeWidth="1"/>
-                  <path d="M8.21 13.89L7 23l5-3 5 3-1.21-9.12" fill="#cd7f32" stroke="#a0522d" strokeWidth="1"/>
-                  <text x="12" y="11" textAnchor="middle" fill="#7b4f00" fontSize="7" fontWeight="bold">{stats.rank}</text>
-                </svg>
-              </div>
-              <div style={{ fontSize:11, textAlign:"center", color:t.textMuted, marginTop:4, fontWeight:600 }}>Rank</div>
-            </div>
+        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"20px 18px", marginBottom:14 }}>
+          <div style={{ display:"flex", gap:16, alignItems:"flex-start", marginBottom:20 }}>
+            <MedalBadge rank={stats.rank}/>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:12, color:t.textMuted, marginBottom:3 }}>Team <span style={{ color:t.text, fontWeight:700 }}>{stats.team}</span></div>
-              <div style={{ fontSize:12, color:t.textMuted, marginBottom:3 }}>Same bucket work number <span style={{ color:t.blue, fontWeight:700 }}>{stats.sameBucketWorkers}</span></div>
+              <div style={{ fontSize:13, color:t.textMuted, marginBottom:4 }}>
+                Team <span style={{ color:t.text, fontWeight:700 }}>{stats.team}</span>
+              </div>
+              <div style={{ fontSize:13, color:t.textMuted, marginBottom:4 }}>
+                Same bucket work number <span style={{ color:t.blue, fontWeight:700 }}>{stats.sameBucketWorkers}</span>
+              </div>
               <div style={{ fontSize:11, color:t.textMuted }}>Update time: {stats.updateTime}</div>
             </div>
-            <div style={{ fontSize:11, color:t.textMuted, textAlign:"right", flexShrink:0 }}>Amount Unit:<br/>Ten thousand</div>
+            <div style={{ fontSize:10, color:t.textMuted, textAlign:"right", flexShrink:0, lineHeight:1.5 }}>Amount Unit:<br/>Ten thousand</div>
           </div>
 
           {/* Bonus progress */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
             <div>
-              <div style={{ fontSize:20, fontWeight:800, color:t.text, fontFamily:"'DM Serif Display',Georgia,serif" }}>${stats.currentBonus.toLocaleString()}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:t.text, fontFamily:"'DM Serif Display',Georgia,serif" }}>${stats.currentBonus.toLocaleString()}</div>
               <div style={{ fontSize:11, color:t.textMuted }}>Current Bonus</div>
             </div>
             <div style={{ display:"flex", gap:3, alignItems:"center" }}>
               {[0,1,2].map(i=>(
-                <div key={i} style={{ width:8, height:20, borderRadius:2, background:t.blue, opacity:0.3+(i*0.25) }}/>
+                <div key={i} style={{ width:7, height:18, borderRadius:2, background:t.blue, opacity:0.3+(i*0.25) }}/>
               ))}
-              <div style={{ width:0, height:0, borderTop:"8px solid transparent", borderBottom:"8px solid transparent", borderLeft:`12px solid ${t.blue}`, marginLeft:2 }}/>
+              <div style={{ width:0, height:0, borderTop:"7px solid transparent", borderBottom:"7px solid transparent", borderLeft:`11px solid ${t.blue}`, marginLeft:2 }}/>
             </div>
             <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:20, fontWeight:800, color:t.text, fontFamily:"'DM Serif Display',Georgia,serif" }}>${stats.nextTargetBonus.toLocaleString()}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:t.text, fontFamily:"'DM Serif Display',Georgia,serif" }}>${stats.nextTargetBonus.toLocaleString()}</div>
               <div style={{ fontSize:11, color:t.textMuted }}>Next Target Bonus</div>
             </div>
           </div>
-          <div style={{ height:8, background:t.border, borderRadius:4, marginBottom:14, overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${pct}%`, background:t.blue, borderRadius:4, transition:"width 1s ease" }}/>
+
+          {/* Progress bar */}
+          <div style={{ height:8, background:t.border, borderRadius:4, marginBottom:16, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${pct}%`, background:t.blue, borderRadius:4 }}/>
           </div>
 
           {/* Recovery */}
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-end" }}>
             <div>
-              <div style={{ fontSize:24, fontWeight:800, color:t.blue, fontFamily:"'DM Serif Display',Georgia,serif" }}>{stats.currentRecovery.toFixed(2)}</div>
+              <div style={{ fontSize:26, fontWeight:800, color:t.blue, fontFamily:"'DM Serif Display',Georgia,serif" }}>{stats.currentRecovery.toFixed(2)}</div>
               <div style={{ fontSize:11, color:t.textMuted }}>Current Recovery Amt</div>
             </div>
             <div style={{ textAlign:"right" }}>
-              <div style={{ fontSize:16, fontWeight:600, color:t.text }}>{stats.nextTargetRecovery.toFixed(2)}</div>
+              <div style={{ fontSize:15, fontWeight:600, color:t.text }}>{stats.nextTargetRecovery.toFixed(2)}</div>
               <div style={{ fontSize:11, color:t.textMuted }}>Next Target Recovery Amt</div>
             </div>
           </div>
@@ -824,29 +990,29 @@ function StatisticsScreen({ stats, t }) {
         </div>
 
         {/* Completion stats */}
-        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"18px" }}>
+        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"18px", marginBottom:14 }}>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:4 }}>
             {[
-              { label:"Completion Rate", value:`${stats.completionRate}%`, color:t.text },
-              { label:"Target Amt",      value:stats.targetAmt.toFixed(2), color:t.text },
-              { label:"Overdue Amt",     value:stats.overdueAmt.toFixed(2), color:t.text },
+              { label:"Completion Rate", value:`${stats.completionRate}%` },
+              { label:"Target Amt",      value:stats.targetAmt.toFixed(2) },
+              { label:"Overdue Amt",     value:stats.overdueAmt.toFixed(2) },
             ].map(s=>(
               <div key={s.label} style={{ textAlign:"center", padding:"10px 4px" }}>
-                <div style={{ fontSize:20, fontWeight:800, color:s.color, fontFamily:"'DM Serif Display',Georgia,serif", marginBottom:4 }}>{s.value}</div>
+                <div style={{ fontSize:20, fontWeight:800, color:t.text, fontFamily:"'DM Serif Display',Georgia,serif", marginBottom:4 }}>{s.value}</div>
                 <div style={{ fontSize:11, color:t.textMuted, lineHeight:1.4 }}>{s.label}</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Today summary */}
-        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"18px", marginTop:14 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:t.textMuted, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14 }}>Today's Activity</div>
+        {/* Today's activity */}
+        <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:"18px" }}>
+          <div style={{ fontSize:11, fontWeight:700, color:t.textMuted, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:14 }}>Today's Activity</div>
           {[
-            { label:"Cases Worked",   value:"4",   color:t.blue },
-            { label:"Calls Made",     value:"17",  color:t.text },
-            { label:"PTP Secured",    value:"2",   color:t.purple },
-            { label:"Amount Recovered", value:"$1,205.88", color:t.green },
+            { label:"Cases Worked",     value:"4",         color:t.blue   },
+            { label:"Calls Made",       value:"17",        color:t.text   },
+            { label:"PTP Secured",      value:"2",         color:t.purple },
+            { label:"Amount Recovered", value:"$1,205.88", color:t.green  },
           ].map(s=>(
             <div key={s.label} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
               <span style={{ fontSize:13, color:t.textSub }}>{s.label}</span>
@@ -855,19 +1021,68 @@ function StatisticsScreen({ stats, t }) {
           ))}
         </div>
 
-        <div style={{ height:20 }}/>
       </div>
     </div>
   );
 }
 
-// ─── ORDERS SCREEN (placeholder) ─────────────────────────────────────────────
+// ─── ORDERS SCREEN ────────────────────────────────────────────────────────────
+const ORDER_TABS = ["All","Under Review","Agree","Reject","Successful"];
+
 function OrdersScreen({ t }) {
+  const [activeTab, setActiveTab]   = useState("All");
+  const [activeView, setActiveView] = useState("manualrepay");
+
+  const EmptyBox = () => (
+    <svg width="130" height="120" viewBox="0 0 130 120" fill="none">
+      <rect x="28" y="50" width="74" height="58" rx="5" fill={t.border}/>
+      <path d="M28 66h74" stroke={t.borderStrong} strokeWidth="2"/>
+      <path d="M12 50l16-22h74l16 22" fill={t.surfaceAlt} stroke={t.border} strokeWidth="2"/>
+      <circle cx="90" cy="32" r="14" fill={t.borderStrong}/>
+      <text x="90" y="38" textAnchor="middle" fill={t.surface} fontSize="16" fontWeight="bold">!</text>
+      <circle cx="52" cy="78" r="4" fill={t.borderStrong}/>
+      <circle cx="78" cy="78" r="4" fill={t.borderStrong}/>
+      <path d="M49 92 q16 9 32 0" stroke={t.borderStrong} strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+    </svg>
+  );
+
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:40, gap:12, color:t.textMuted }}>
-      <Ico d={I.orders} size={48} sw={1}/>
-      <div style={{ fontSize:16, fontWeight:600, color:t.textSub }}>Orders</div>
-      <div style={{ fontSize:13, textAlign:"center" }}>Order management coming in the next version.</div>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", background:t.bg }}>
+      {/* Search */}
+      <div style={{ background:t.surface, borderBottom:`1px solid ${t.border}`, padding:"12px 16px", flexShrink:0 }}>
+        <div style={{ position:"relative" }}>
+          <div style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)", color:t.textMuted }}><Ico d={I.search} size={16}/></div>
+          <input placeholder="Search Case Information" style={{ ...inSt(t), paddingLeft:40, borderRadius:24 }} readOnly/>
+        </div>
+      </div>
+
+      {/* Manualrepay / Reconciliation buttons */}
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, padding:"14px 16px 0", flexShrink:0 }}>
+        {[["manualrepay","Manualrepay"],["reconciliation","Reconciliation"]].map(([key,label])=>(
+          <button key={key} onClick={()=>setActiveView(key)}
+            style={{ padding:"14px", borderRadius:10, fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit", background:activeView===key?t.blue:"transparent", color:activeView===key?"#fff":t.text, border:`1.5px solid ${activeView===key?t.blue:t.border}`, transition:"all 0.15s" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Status tabs */}
+      <div style={{ background:t.surface, borderBottom:`1px solid ${t.border}`, overflowX:"auto", display:"flex", padding:"0 8px", flexShrink:0, marginTop:14 }}>
+        {ORDER_TABS.map(tb=>(
+          <button key={tb} onClick={()=>setActiveTab(tb)}
+            style={{ padding:"11px 14px", fontSize:13, fontWeight:activeTab===tb?700:400, color:activeTab===tb?t.blue:t.textMuted, background:"transparent", border:"none", cursor:"pointer", borderBottom:`2.5px solid ${activeTab===tb?t.blue:"transparent"}`, whiteSpace:"nowrap", fontFamily:"inherit", flexShrink:0 }}>
+            {tb}
+          </button>
+        ))}
+      </div>
+
+      {/* Empty state */}
+      <div style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, background:t.surfaceAlt, padding:"40px 20px" }}>
+        <EmptyBox/>
+        <div style={{ fontSize:15, color:t.textMuted, fontWeight:500 }}>
+          NO {activeView==="manualrepay"?"Manualrepay":"Reconciliation"} history yet
+        </div>
+      </div>
     </div>
   );
 }
